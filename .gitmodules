@@ -1,0 +1,9 @@
+[submodule "backend"]
+	path = backend
+	url = https://github.com/leechardes/i9_smart_pdv_api_express.git
+[submodule "frontend"]
+	path = frontend
+	url = https://github.com/leechardes/i9_smart_pdv_web_nextjs.git
+[submodule "mobile"]
+	path = mobile
+	url = https://github.com/leechardes/i9_smart_pdv_mobile_expo.git
