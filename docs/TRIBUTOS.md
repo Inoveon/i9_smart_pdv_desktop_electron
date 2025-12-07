@@ -1,457 +1,429 @@
-# I9 Smart PDV Web - Módulo Tributário
+# I9 Smart PDV Web - Modulo Tributario
 
-Documentação do Configurador Tributário inspirado no TOTVS Protheus.
-Sistema completo para gestão fiscal de postos de combustíveis.
+Documentacao do Configurador Tributario inspirado no TOTVS Protheus.
+Sistema completo para gestao fiscal de postos de combustiveis.
+
+**Versao:** 2.0
+**Data:** 07/12/2025
+**Status:** Implementacao Completa
 
 ---
 
-## 1. Visão Geral
+## 1. Visao Geral
 
-O módulo tributário foi projetado para:
-- Automatizar cálculos fiscais conforme legislação brasileira
-- Suportar tributação monofásica de combustíveis (NT 2023.001)
-- Atender a Lei da Transparência Fiscal (Lei 12.741/2012)
-- Simplificar configuração tributária por produto/NCM
+O modulo tributario foi projetado para:
+- Automatizar calculos fiscais conforme legislacao brasileira
+- Suportar tributacao monofasica de combustiveis (NT 2023.001)
+- Atender a Lei da Transparencia Fiscal (Lei 12.741/2012)
+- Simplificar configuracao tributaria por produto/NCM
+- Permitir configuracao visual via interface admin
 
 ### Arquitetura
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    MÓDULO TRIBUTÁRIO                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-│  │   Tabelas    │  │   Config.    │  │   Cálculo    │       │
-│  │  Referência  │  │  Tributária  │  │   Tributos   │       │
-│  └──────────────┘  └──────────────┘  └──────────────┘       │
-│         │                 │                 │               │
-│         ▼                 ▼                 ▼               │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │                   PRISMA / PostgreSQL                │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         CONFIGURADOR TRIBUTARIO                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  FRONTEND (Next.js)           BACKEND (Express)        BANCO (PostgreSQL)│
+│  ┌──────────────────┐        ┌──────────────────┐     ┌────────────────┐ │
+│  │ /admin/fiscal/   │   →    │ /api/v1/tributos │  →  │ TribPerfil     │ │
+│  │   tributos       │        │ TributacaoService│     │ TribRegra      │ │
+│  │   (CRUD visual)  │        │ (Motor calculo)  │     │ TribCST/CSOSN  │ │
+│  └──────────────────┘        └──────────────────┘     └────────────────┘ │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. Tabelas de Referência
+## 2. Como Funciona o Calculo de Tributos
 
-### 2.1 Resumo das Tabelas
+### 2.1 Fluxo Principal
 
-| Tabela | Registros | Fonte | Descrição |
-|--------|-----------|-------|-----------|
-| `TribTributo` | 6 | Estático | Tributos base (ICMS, PIS, COFINS, IPI, ISS, FCP) |
-| `TribCST` | 92 | Estático | Códigos de Situação Tributária |
-| `TribCSOSN` | 10 | Estático | Códigos Simples Nacional |
-| `TribCFOP` | 247 | Estático | Códigos Fiscais de Operações |
-| `TribANP` | 22 | Estático | Códigos ANP de Combustíveis |
-| `TribAliquotaUF` | 27 | Estático | Alíquotas ICMS por UF |
-| `TribNCM` | 10.507 | Siscomex | Nomenclatura Comum Mercosul |
-| `Uf` | 27 | IBGE | Estados Brasileiros |
-| `Municipio` | 5.570 | IBGE | Municípios Brasileiros |
-| `TribIBPT` | 98+ | CDN nfe.io | Alíquotas Lei Transparência |
+Quando uma NFCe ou NFe e emitida, o sistema executa o seguinte fluxo:
 
-### 2.2 Detalhamento
+```
+1. EMISSAO DOCUMENTO FISCAL
+   │
+   ▼
+2. TributacaoService.calcularTributos({
+     tipoDocumento: 'NFCE' | 'NFE',
+     empresaId: uuid,
+     itens: [{ produtoId, ncm, cfop, quantidade, valorUnitario, codigoAnp }]
+   })
+   │
+   ▼
+3. BUSCA CONTEXTO
+   ├── empresa.crt (1=Simples, 2=Simples Exc, 3=Regime Normal)
+   ├── empresa.uf (estado de origem)
+   └── destinatario.uf (estado de destino)
+   │
+   ▼
+4. PARA CADA ITEM:
+   │
+   ├── Busca produto.perfilTributarioId (ex: COMB_GASOLINA)
+   │
+   ├── CALCULA ICMS:
+   │   └── buscarRegraTributaria(perfilId, 'ICMS', crt)
+   │       ├── Tenta: perfil + tributo + CRT
+   │       ├── Tenta: perfil + tributo (sem CRT)
+   │       └── Fallback: MERC_GERAL + tributo
+   │
+   ├── CALCULA PIS:
+   │   └── buscarRegraTributaria(perfilId, 'PIS', crt)
+   │
+   ├── CALCULA COFINS:
+   │   └── buscarRegraTributaria(perfilId, 'COFINS', crt)
+   │
+   ├── VERIFICA MONOFASICO:
+   │   └── Se codigoAnp → busca TribANP.aliquotaAdRem
+   │       → CST ICMS = 61, CST PIS/COFINS = 04
+   │
+   └── CALCULA IBPT (Lei Transparencia):
+       └── busca TribIBPT por NCM → aliquotas aproximadas
+   │
+   ▼
+5. RETORNA ResultadoCalculo {
+     itens: [{ icms, pis, cofins, ibpt }],
+     totais: { totalIcms, totalPis, totalCofins, totalTributos }
+   }
+```
 
-#### TribTributo
-Tributos base do sistema fiscal brasileiro.
+### 2.2 Hierarquia de Busca de Regras
 
-| Código | Descrição | Esfera | Espécie |
-|--------|-----------|--------|---------|
-| ICMS | Imposto sobre Circulação de Mercadorias | ESTADUAL | IMPOSTO |
-| PIS | Programa de Integração Social | FEDERAL | CONTRIBUICAO |
-| COFINS | Contribuição para Financiamento da Seguridade | FEDERAL | CONTRIBUICAO |
-| IPI | Imposto sobre Produtos Industrializados | FEDERAL | IMPOSTO |
-| ISS | Imposto sobre Serviços | MUNICIPAL | IMPOSTO |
-| FCP | Fundo de Combate à Pobreza | ESTADUAL | ADICIONAL |
+O sistema busca regras tributarias na seguinte ordem:
 
-#### TribCST (Código de Situação Tributária)
+1. **Especifica**: Perfil do produto + Tributo + CRT
+2. **Generica**: Perfil do produto + Tributo (qualquer CRT)
+3. **Fallback**: Perfil MERC_GERAL + Tributo
 
-**ICMS (12 códigos)**
-| Código | Descrição | Gera Tributo |
-|--------|-----------|--------------|
-| 00 | Tributada integralmente | Sim |
-| 10 | Tributada com ST | Sim |
-| 20 | Com redução de base | Sim |
-| 30 | Isenta/não tributada com ST | Não |
-| 40 | Isenta | Não |
-| 41 | Não tributada | Não |
-| 50 | Suspensão | Não |
-| 51 | Diferimento | Não |
-| 60 | ICMS cobrado anteriormente por ST | Não |
-| 61 | Tributação monofásica combustíveis | Não |
-| 70 | Redução de base + ST | Sim |
-| 90 | Outras | Depende |
+Exemplo para Gasolina no Simples Nacional:
+```
+1. Busca: perfilId=COMB_GASOLINA, tributo=ICMS, crt=1
+   → Se encontrar, usa essa regra
 
-**PIS/COFINS (33 códigos cada)**
-| Código | Descrição |
+2. Se nao encontrar, busca: perfilId=COMB_GASOLINA, tributo=ICMS, crt=null
+   → Se encontrar, usa essa regra
+
+3. Se nao encontrar, busca: perfilId=MERC_GERAL, tributo=ICMS
+   → Usa como fallback padrao
+```
+
+### 2.3 Tipos de Regime Tributario (CRT)
+
+| CRT | Descricao | CST/CSOSN |
+|-----|-----------|-----------|
+| 1 | Simples Nacional | Usa CSOSN (101, 102, 500, etc) |
+| 2 | Simples Nacional - Excesso Sublimite | Usa CSOSN |
+| 3 | Regime Normal | Usa CST (00, 10, 60, 61, etc) |
+
+---
+
+## 3. Perfis de Produto
+
+### 3.1 Conceito
+
+Perfil de produto agrupa produtos com a mesma tributacao. Exemplos:
+
+| Codigo | Descricao | Tipo |
+|--------|-----------|------|
+| COMB_GASOLINA | Gasolina Comum e Aditivada | MONOFASICO |
+| COMB_DIESEL | Diesel S10 e S500 | MONOFASICO |
+| COMB_ETANOL | Etanol Hidratado | MONOFASICO |
+| MERC_GERAL | Mercadorias em Geral | TRIBUTADO |
+| MERC_ISENTO | Produtos Isentos | ISENTO |
+| SERV_LAVAGEM | Servicos de Lavagem | TRIBUTADO |
+
+### 3.2 Tipos de Perfil
+
+| Tipo | Descricao |
+|------|-----------|
+| TRIBUTADO | Produto com tributacao normal |
+| ISENTO | Isento de impostos |
+| NAO_TRIBUTADO | Nao incide imposto |
+| ST | Substituicao Tributaria |
+| DIFERIDO | Imposto diferido |
+| MONOFASICO | Tributacao monofasica (combustiveis) |
+| IMUNE | Imunidade tributaria |
+
+### 3.3 Vinculo com Produto
+
+No cadastro de produto, o campo `perfilTributarioId` define qual perfil usar:
+
+```prisma
+model Produto {
+  id                String  @id
+  nome              String
+  ncm               String?
+  codigoAnp         String?
+  perfilTributarioId String? // → TribPerfilProduto
+}
+```
+
+---
+
+## 4. Regras Tributarias
+
+### 4.1 Conceito
+
+Cada regra tributaria define como calcular um tributo especifico para um perfil:
+
+```prisma
+model TribRegraTributaria {
+  id              String   @id
+  descricao       String   // "ICMS Gasolina SP - Regime Normal"
+  prioridade      Int      // Para ordenacao (maior = mais importante)
+
+  // Criterios de aplicacao
+  tributoId       String   // ICMS, PIS, COFINS
+  perfilProdutoId String?  // Se null, aplica a todos
+  crt             Int?     // 1, 2, 3 ou null (todos)
+  ufOrigem        String?  // SP, RJ ou null (todos)
+
+  // Resultado
+  cstId           String?  // Para Regime Normal
+  csosnId         String?  // Para Simples Nacional
+  aliquota        Decimal? // 0.18 = 18%
+  reducaoBase     Decimal? // 0.30 = 30% reducao
+
+  // Flags
+  isMonofasico    Boolean  // Usa aliquota Ad Rem
+  isST            Boolean  // Substituicao Tributaria
+  isIsento        Boolean  // Isento de tributo
+
+  // Vigencia
+  vigenciaInicio  DateTime
+  vigenciaFim     DateTime?
+  ativo           Boolean
+}
+```
+
+### 4.2 Exemplos de Regras
+
+**ICMS Gasolina - Regime Normal (CRT 3)**
+```json
+{
+  "descricao": "ICMS Gasolina - Regime Normal",
+  "tributoId": "uuid-icms",
+  "perfilProdutoId": "uuid-comb-gasolina",
+  "crt": 3,
+  "cstId": "uuid-cst-61",
+  "isMonofasico": true,
+  "aliquota": null
+}
+```
+
+**ICMS Gasolina - Simples Nacional (CRT 1)**
+```json
+{
+  "descricao": "ICMS Gasolina - Simples Nacional",
+  "tributoId": "uuid-icms",
+  "perfilProdutoId": "uuid-comb-gasolina",
+  "crt": 1,
+  "csosnId": "uuid-csosn-500",
+  "isMonofasico": true
+}
+```
+
+**PIS Mercadorias Gerais**
+```json
+{
+  "descricao": "PIS Mercadorias - Aliquota Basica",
+  "tributoId": "uuid-pis",
+  "perfilProdutoId": "uuid-merc-geral",
+  "crt": null,
+  "cstId": "uuid-cst-01",
+  "aliquota": 0.0165
+}
+```
+
+---
+
+## 5. Tributacao Monofasica (Combustiveis)
+
+### 5.1 Conceito
+
+A NT 2023.001 implementou a tributacao monofasica (Ad Rem) para combustiveis, substituindo o ICMS por aliquota percentual por aliquota fixa por litro/kg.
+
+### 5.2 Aliquotas Ad Rem (vigentes)
+
+| Combustivel | Codigo ANP | Aliquota | Unidade |
+|-------------|------------|----------|---------|
+| Gasolina A/C | 210203001/003 | R$ 1,2571 | por litro |
+| Diesel S10/S500 | 420101001/002 | R$ 0,9456 | por litro |
+| GLP | 610101001 | R$ 1,2571 | por kg |
+| Etanol Hidratado | 220102002 | R$ 0,1279 | por litro |
+| Etanol Anidro | 220102003 | R$ 0,0000 | por litro |
+
+### 5.3 CST para Monofasico
+
+| Tributo | CST | Descricao |
+|---------|-----|-----------|
+| ICMS | 61 | Tributacao monofasica sobre combustiveis |
+| PIS | 04 | Monofasica - Revenda tributada |
+| COFINS | 04 | Monofasica - Revenda tributada |
+
+### 5.4 Calculo
+
+```typescript
+// Para combustivel monofasico:
+const valorICMS = quantidade * aliquotaAdRem;
+
+// Exemplo: 50 litros de gasolina
+const icms = 50 * 1.2571; // = R$ 62,86
+```
+
+---
+
+## 6. Interface Admin
+
+### 6.1 Acesso
+
+Menu: **Fiscal → Configurador Tributario**
+
+### 6.2 Funcionalidades
+
+**Aba Perfis de Produto**
+- Listar todos os perfis
+- Criar novo perfil
+- Editar perfil existente
+- Visualizar produtos vinculados
+- Ativar/Desativar perfil
+
+**Aba Regras Tributarias**
+- Listar todas as regras
+- Filtrar por tributo, CRT, UF
+- Criar nova regra
+- Editar regra existente
+- Duplicar regra (para criar variantes)
+- Definir vigencia
+
+### 6.3 Endpoints da API
+
+| Metodo | Rota | Descricao |
+|--------|------|-----------|
+| GET | `/api/v1/tributos/perfis-produto` | Listar perfis |
+| POST | `/api/v1/tributos/perfis-produto` | Criar perfil |
+| GET | `/api/v1/tributos/perfis-produto/:id` | Buscar perfil |
+| PUT | `/api/v1/tributos/perfis-produto/:id` | Atualizar perfil |
+| DELETE | `/api/v1/tributos/perfis-produto/:id` | Remover perfil |
+| GET | `/api/v1/tributos/regras` | Listar regras |
+| POST | `/api/v1/tributos/regras` | Criar regra |
+| GET | `/api/v1/tributos/regras/:id` | Buscar regra |
+| PUT | `/api/v1/tributos/regras/:id` | Atualizar regra |
+| DELETE | `/api/v1/tributos/regras/:id` | Remover regra |
+| POST | `/api/v1/tributos/regras/:id/duplicar` | Duplicar regra |
+
+---
+
+## 7. Tabelas de Referencia
+
+### 7.1 Resumo
+
+| Tabela | Registros | Fonte |
+|--------|-----------|-------|
+| TribTributo | 6 | Estatico |
+| TribCST | 92 | Estatico |
+| TribCSOSN | 10 | Estatico |
+| TribCFOP | 247 | Estatico |
+| TribANP | 22 | Estatico |
+| TribAliquotaUF | 27 | Estatico |
+| TribNCM | 10.507 | Siscomex API |
+| TribIBPT | 98+ | CDN nfe.io |
+
+### 7.2 Tributos Base
+
+| Codigo | Descricao | Esfera |
+|--------|-----------|--------|
+| ICMS | Imposto sobre Circulacao de Mercadorias | ESTADUAL |
+| PIS | Programa de Integracao Social | FEDERAL |
+| COFINS | Contribuicao para Financiamento da Seguridade | FEDERAL |
+| IPI | Imposto sobre Produtos Industrializados | FEDERAL |
+| ISS | Imposto sobre Servicos | MUNICIPAL |
+| FCP | Fundo de Combate a Pobreza | ESTADUAL |
+
+### 7.3 CST ICMS (principais)
+
+| Codigo | Descricao |
 |--------|-----------|
-| 01 | Alíquota básica (1,65% / 7,6%) |
-| 02 | Alíquota diferenciada |
-| 03 | Alíquota por unidade |
-| 04 | Monofásica - revenda vedada |
-| 05 | Monofásica - revenda ST |
-| 06 | Alíquota zero |
-| 07 | Isenta |
-| 08 | Sem incidência |
-| 09 | Suspensão |
-| ... | (demais códigos) |
+| 00 | Tributada integralmente |
+| 10 | Tributada com ST |
+| 20 | Com reducao de base |
+| 40 | Isenta |
+| 41 | Nao tributada |
+| 60 | ICMS cobrado anteriormente por ST |
+| 61 | Tributacao monofasica combustiveis |
 
-#### TribCSOSN (Simples Nacional)
-| Código | Descrição | Permite Crédito |
-|--------|-----------|-----------------|
-| 101 | Tributada com permissão de crédito | Sim |
-| 102 | Tributada sem permissão de crédito | Não |
-| 103 | Isenção do ICMS no Simples | Não |
-| 201 | Tributada com crédito e ST | Sim |
-| 202 | Tributada sem crédito e com ST | Não |
-| 203 | Isenção com ST | Não |
-| 300 | Imune | Não |
-| 400 | Não tributada | Não |
-| 500 | ICMS cobrado anteriormente por ST | Não |
-| 900 | Outros | Depende |
+### 7.4 CSOSN (Simples Nacional)
 
-#### TribANP (Combustíveis)
-Códigos da Agência Nacional do Petróleo com tributação monofásica (Ad Rem).
-
-| Código | Descrição | Alíquota Ad Rem |
-|--------|-----------|-----------------|
-| 210203001 | Gasolina A | R$ 1,2571/L |
-| 210203003 | Gasolina C | R$ 1,2571/L |
-| 420101001 | Diesel S10 | R$ 0,9456/L |
-| 420101002 | Diesel S500 | R$ 0,9456/L |
-| 420201001 | Biodiesel B100 | R$ 0,9456/L |
-| 220102002 | Etanol Hidratado | R$ 0,1279/L |
-| 220102003 | Etanol Anidro | R$ 0,0000/L |
-| 610101001 | GLP a granel | R$ 1,2571/kg |
+| Codigo | Descricao |
+|--------|-----------|
+| 101 | Tributada com permissao de credito |
+| 102 | Tributada sem permissao de credito |
+| 103 | Isencao do ICMS no Simples |
+| 500 | ICMS cobrado anteriormente por ST |
+| 900 | Outros |
 
 ---
 
-## 3. Fontes de Dados Oficiais
+## 8. Seeds e Atualizacao
 
-### 3.1 Siscomex - NCM
-- **URL**: `https://portalunico.siscomex.gov.br/classif/api/publico/nomenclatura/download/json`
-- **Dados**: ~10.500 códigos NCM vigentes
-- **Atualização**: Mensal
-
-### 3.2 IBGE - Localidades
-- **Estados**: `https://servicodados.ibge.gov.br/api/v1/localidades/estados`
-- **Municípios**: `https://servicodados.ibge.gov.br/api/v1/localidades/municipios`
-- **Dados**: 27 UFs + 5.570 municípios
-
-### 3.3 IBPT - Lei Transparência
-- **URL**: `http://ibpt.nfe.io/ncm/{uf}/{ncm}.json`
-- **Dados**: Alíquotas aproximadas por NCM
-- **Base Legal**: Lei 12.741/2012
-
----
-
-## 4. Scripts de Seed
-
-### 4.1 Localização
-```
-backend/src/prisma/seeds/tributos/
-├── index.ts              # Seed tabelas estáticas
-├── seed-all.ts           # Orquestrador principal
-├── ncm-downloader.ts     # Download NCM Siscomex
-├── cfop-downloader.ts    # CFOP completo
-├── ibge-downloader.ts    # Estados e Municípios
-├── ibpt-downloader.ts    # Lei Transparência
-├── cache/                # Cache de downloads (30 dias)
-│   ├── ncm-siscomex.json
-│   ├── ibge-estados.json
-│   ├── ibge-municipios.json
-│   └── ibpt-ncms.json
-└── data/                 # Dados estáticos
-    ├── tributos.ts
-    ├── cst.ts
-    ├── csosn.ts
-    ├── cfop.ts
-    ├── anp.ts
-    └── aliquotas-uf.ts
-```
-
-### 4.2 Comandos
+### 8.1 Comandos
 
 ```bash
 # Seed completo (todas as tabelas)
 npx tsx src/prisma/seeds/tributos/seed-all.ts --full
 
-# Forçar novo download (ignorar cache)
+# Forcar novo download (ignorar cache)
 npx tsx src/prisma/seeds/tributos/seed-all.ts --full --force
 
-# Apenas tabelas específicas
-npx tsx src/prisma/seeds/tributos/seed-all.ts --ncm    # NCM do Siscomex
-npx tsx src/prisma/seeds/tributos/seed-all.ts --cfop   # CFOP completo
-npx tsx src/prisma/seeds/tributos/seed-all.ts --ibge   # Estados/Municípios
-npx tsx src/prisma/seeds/tributos/seed-all.ts --ibpt   # Lei Transparência
+# Apenas tabelas especificas
+npx tsx src/prisma/seeds/tributos/seed-all.ts --ncm
+npx tsx src/prisma/seeds/tributos/seed-all.ts --ibge
+npx tsx src/prisma/seeds/tributos/seed-all.ts --ibpt
 
-# Seed básico (sem downloads)
-npx tsx src/prisma/seeds/tributos/seed-all.ts
+# Seed perfis e regras padrao
+npx tsx src/prisma/seeds/tributos/seed-perfis-regras.ts
 ```
 
-### 4.3 Cache
-Os downloads são cacheados por 30 dias em `cache/`. Use `--force` para ignorar.
+### 8.2 Cache
+
+Downloads sao cacheados por 30 dias em `seeds/tributos/cache/`.
+Use `--force` para ignorar cache e baixar novamente.
 
 ---
 
-## 5. Schema Prisma
+## 9. Contexto para Outros Chats
 
-### 5.1 Enums
+### Para Claude entender o sistema:
 
-```prisma
-enum TribEsfera {
-  FEDERAL
-  ESTADUAL
-  MUNICIPAL
-}
+1. **Perfis agrupam produtos** com mesma tributacao
+2. **Regras definem** como calcular cada tributo por perfil
+3. **TributacaoService** busca regras no banco (sem hardcoded)
+4. **Fallback** para perfil MERC_GERAL se produto sem perfil
+5. **Combustiveis** usam tributacao monofasica (CST 61)
+6. **CRT** define se usa CST (Regime Normal) ou CSOSN (Simples)
 
-enum TribEspecie {
-  IMPOSTO
-  TAXA
-  CONTRIBUICAO
-  ADICIONAL
-}
+### Arquivos principais:
 
-enum TribTipoCST {
-  ICMS
-  PIS
-  COFINS
-  IPI
-}
-
-enum TribTipoOperacao {
-  VENDA_INTERNA
-  VENDA_INTERESTADUAL
-  VENDA_EXTERIOR
-  COMPRA_INTERNA
-  COMPRA_INTERESTADUAL
-  COMPRA_EXTERIOR
-  DEVOLUCAO
-  TRANSFERENCIA
-  REMESSA
-  RETORNO
-  PRESTACAO_SERVICO
-  OUTROS
-}
-
-enum TribFinalidade {
-  NORMAL
-  COMPLEMENTAR
-  DEVOLUCAO
-  AJUSTE
-}
-```
-
-### 5.2 Tabelas Principais
-
-```prisma
-model TribTributo {
-  id        String       @id @default(uuid())
-  codigo    String       @unique
-  descricao String
-  esfera    TribEsfera
-  especie   TribEspecie
-  ativo     Boolean      @default(true)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-}
-
-model TribNCM {
-  id           String   @id @default(uuid())
-  codigo       String   @unique // 8 dígitos
-  descricao    String
-  unidadePadrao String?
-  ativo        Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
-
-model TribANP {
-  id           String   @id @default(uuid())
-  codigo       String   @unique // 9 dígitos
-  descricao    String
-  unidade      String   // L, KG, M3
-  ncmPadrao    String?
-  isMonofasico Boolean  @default(true)
-  aliquotaAdRem Decimal? @db.Decimal(10, 4)
-  ativo        Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
-
-model TribIBPT {
-  id                  String    @id @default(uuid())
-  ncm                 String    @unique
-  descricao           String
-  aliqFederalNacional Decimal   @db.Decimal(6, 2)
-  aliqFederalImportado Decimal  @db.Decimal(6, 2)
-  aliqEstadual        Decimal   @db.Decimal(6, 2)
-  aliqMunicipal       Decimal   @db.Decimal(6, 2)
-  versao              String
-  fonte               String
-  vigenciaInicio      DateTime
-  vigenciaFim         DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-}
-
-model Uf {
-  id          String      @id @default(uuid())
-  codigoIbge  Int         @unique
-  sigla       String      @unique @db.Char(2)
-  nome        String
-  regiao      String
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  municipios  Municipio[]
-}
-
-model Municipio {
-  id         String   @id @default(uuid())
-  codigoIbge Int      @unique
-  nome       String
-  ufSigla    String   @db.Char(2)
-  uf         Uf       @relation(fields: [ufSigla], references: [sigla])
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-}
-```
+| Arquivo | Responsabilidade |
+|---------|------------------|
+| `backend/src/modules/fiscal/services/tributacao.service.ts` | Motor de calculo |
+| `backend/src/services/tributo.service.ts` | CRUD de perfis e regras |
+| `backend/src/controllers/tributo.controller.ts` | Endpoints REST |
+| `frontend/src/app/admin/fiscal/tributos/page.tsx` | Interface admin |
 
 ---
 
-## 6. Tributação Monofásica (Combustíveis)
+## 10. Referencias
 
-### 6.1 Conceito
-A NT 2023.001 implementou a tributação monofásica (Ad Rem) para combustíveis, substituindo o ICMS por alíquota percentual por alíquota fixa por litro/kg.
-
-### 6.2 Alíquotas Ad Rem (vigentes)
-
-| Combustível | Alíquota | Unidade |
-|-------------|----------|---------|
-| Gasolina | R$ 1,2571 | por litro |
-| Diesel | R$ 0,9456 | por litro |
-| GLP | R$ 1,2571 | por kg |
-| Etanol Hidratado | R$ 0,1279 | por litro |
-| Etanol Anidro | R$ 0,0000 | por litro |
-
-### 6.3 CST para Monofásico
-- **CST ICMS**: 61 (Tributação monofásica sobre combustíveis)
-- **CST PIS/COFINS**: 04 (Monofásica - Revenda tributada)
-
-### 6.4 CFOP para Combustíveis
-| CFOP | Operação |
-|------|----------|
-| 5.656 | Venda combustível a consumidor final |
-| 5.667 | Venda combustível para não contribuinte |
-| 6.656 | Venda interestadual combustível |
-
----
-
-## 7. Lei da Transparência Fiscal (Lei 12.741/2012)
-
-### 7.1 Obrigatoriedade
-Todos os documentos fiscais devem informar o valor aproximado dos tributos incidentes sobre cada produto.
-
-### 7.2 Tributos Informados
-| Tributo | Descrição |
-|---------|-----------|
-| Federal Nacional | PIS + COFINS + IPI (produtos nacionais) |
-| Federal Importado | PIS + COFINS + IPI + II (produtos importados) |
-| Estadual | ICMS |
-| Municipal | ISS (serviços) |
-
-### 7.3 Cálculo
-```javascript
-// Exemplo de cálculo para produto nacional
-const valorProduto = 100.00;
-const ibpt = await prisma.tribIBPT.findUnique({ where: { ncm: '27101259' } });
-
-const tributoFederal = valorProduto * (ibpt.aliqFederalNacional / 100);
-const tributoEstadual = valorProduto * (ibpt.aliqEstadual / 100);
-const tributoMunicipal = valorProduto * (ibpt.aliqMunicipal / 100);
-const tributoTotal = tributoFederal + tributoEstadual + tributoMunicipal;
-
-// Exibir no cupom fiscal
-// "Valor aproximado dos tributos: R$ XX,XX (XX,XX%)"
-```
-
----
-
-## 8. Configuração Tributária por Produto
-
-### 8.1 Modelo TribConfigProduto
-```prisma
-model TribConfigProduto {
-  id              String   @id @default(uuid())
-  empresaId       String
-  produtoId       String
-  regimeTributario TribRegime
-
-  // ICMS
-  cstIcms         String
-  aliqIcms        Decimal?
-  reducaoBaseIcms Decimal?
-
-  // PIS
-  cstPis          String
-  aliqPis         Decimal?
-
-  // COFINS
-  cstCofins       String
-  aliqCofins      Decimal?
-
-  // CFOP
-  cfopVendaInterna      String?
-  cfopVendaInterestadual String?
-
-  // Monofásico
-  isMonofasico    Boolean  @default(false)
-  aliquotaAdRem   Decimal?
-
-  vigenciaInicio  DateTime
-  vigenciaFim     DateTime?
-  ativo           Boolean  @default(true)
-}
-```
-
-### 8.2 Hierarquia de Configuração
-1. Produto específico (TribConfigProduto)
-2. NCM do produto (TribNCM + TribIBPT)
-3. Configuração padrão da empresa
-
----
-
-## 9. Próximos Passos
-
-### 9.1 Implementados
-- [x] Schema Prisma com todas as tabelas tributárias
-- [x] Seeds de dados estáticos (CST, CSOSN, CFOP, ANP)
-- [x] Download automático NCM do Siscomex
-- [x] Download automático IBGE (UF + Municípios)
-- [x] Download automático IBPT (Lei Transparência)
-- [x] Sistema de cache com 30 dias de validade
-
-### 9.2 Pendentes
-- [ ] API REST para consulta de tabelas tributárias
-- [ ] Tela de configuração tributária por produto
-- [ ] Cálculo automático de tributos na venda
-- [ ] Geração de NF-e/NFC-e com tributação correta
-- [ ] Integração com IBPT via API (atualização automática)
-- [ ] Relatórios fiscais (Livros de Entrada/Saída)
-
----
-
-## 10. Referências
-
-- [Portal Único Siscomex](https://portalunico.siscomex.gov.br/)
+- [Portal Unico Siscomex](https://portalunico.siscomex.gov.br/)
 - [IBGE Localidades](https://servicodados.ibge.gov.br/api/docs/localidades)
 - [IBPT - De Olho no Imposto](https://deolhonoimposto.ibpt.org.br/)
-- [NT 2023.001 - Tributação Monofásica](https://www.nfe.fazenda.gov.br/)
-- [Manual NF-e](https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=33ol5hhSYZk=)
+- [NT 2023.001 - Tributacao Monofasica](https://www.nfe.fazenda.gov.br/)
 
 ---
 
-*Documento gerado em: Dezembro/2024*
-*Versão: 1.0*
+*Documento atualizado em: 07/12/2025*
+*Versao: 2.0 (Implementacao Completa)*
