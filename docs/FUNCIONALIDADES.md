@@ -265,6 +265,7 @@ Este documento serve como guia para o novo desenvolvimento - **não copiar padr�
 - [ ] **PIX** - QR Code dinâmico (API banco)
 
 ### Fase 2
+- [x] **Módulo Tributário** - Configurador fiscal completo (ver [TRIBUTOS.md](./TRIBUTOS.md))
 - [ ] **TEF** - Pagamento cartão (Cielo, Stone, Rede)
 - [ ] **SAT/NFC-e** - Emissão fiscal
 - [ ] **Bombas** - Automação (Fusion Wayne, Gilbarco, SASC)
@@ -332,15 +333,16 @@ Este documento serve como guia para o novo desenvolvimento - **não copiar padr�
 5. Impressão de cupom (não fiscal)
 
 ### Fase 2
-1. Cadastro de bombas/tanques
-2. Abastecimentos (simulado)
-3. Pagamento PIX
-4. Pagamento cartão (TEF)
-5. Clientes e veículos
+1. ~~Módulo Tributário~~ ✅
+2. Cadastro de bombas/tanques
+3. Abastecimentos (simulado)
+4. Pagamento PIX
+5. Pagamento cartão (TEF)
+6. Clientes e veículos
 
 ### Fase 3
 1. Integração com bombas reais
-2. Emissão fiscal (SAT/NFC-e)
+2. Emissão fiscal (SAT/NFC-e) - usar dados do módulo tributário
 3. Relatórios avançados
 4. App mobile (frentista)
 
