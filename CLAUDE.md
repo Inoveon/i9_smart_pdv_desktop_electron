@@ -1,5 +1,19 @@
 # CLAUDE.md
 
+## ⛔ Política de Commits
+
+**IMPORTANTE**: Nunca fazer commit ou push sem autorização explícita do usuário (Lee Chardes).
+
+Antes de qualquer operação git:
+1. ✋ **SEMPRE pergunte** se pode commitar
+2. ✋ **SEMPRE pergunte** se pode fazer push
+3. ✋ **SEMPRE pergunte** se pode fazer merge
+4. ❌ **NUNCA** execute git operations sem permissão
+
+Exceção: Operações de leitura (git status, git log, git diff) são permitidas.
+
+---
+
 ## ⚠️ Importante: Comandos de Substituição
 
 ### Evitar Comandos que Pedem Autorização
