@@ -18,12 +18,12 @@
         "open": true
       },
       "window": {
-        "all": false,
-        "close": true,
-        "minimize": true,
-        "maximize": true,
-        "unmaximize": true,
-        "setFullscreen": true
+        "all": true
+      },
+      "http": {
+        "all": true,
+        "request": true,
+        "scope": ["http://**", "https://**"]
       }
     },
     "bundle": {
@@ -63,7 +63,8 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https: wss:; frame-src https:; frame-ancestors 'self' https:"
+      "csp": null,
+      "dangerousDisableAssetCspModification": true
     },
     "updater": {
       "active": false
@@ -71,6 +72,7 @@
     "windows": [
       {
         "title": "PDV Desktop",
+        "url": "index.html",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,

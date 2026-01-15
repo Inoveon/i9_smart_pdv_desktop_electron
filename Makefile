@@ -171,3 +171,27 @@ set-url: ## Define a URL do PDV (uso: make set-url URL=https://exemplo.com)
 run: ## Executa o app compilado
 	@echo "$(BLUE)🚀 Abrindo PDV Desktop...$(NC)"
 	@open "$(TAURI_DIR)/target/release/bundle/macos/PDV Desktop.app"
+
+# === Múltiplas Instâncias (Sessões Separadas) ===
+
+run-1: ## Executa instância 1 (perfil padrão)
+	@echo "$(BLUE)🚀 Abrindo PDV Desktop - Perfil 1...$(NC)"
+	@"$(TAURI_DIR)/target/release/bundle/macos/PDV Desktop.app/Contents/MacOS/PDV Desktop" --profile=1 &
+
+run-2: ## Executa instância 2 (sessão separada)
+	@echo "$(BLUE)🚀 Abrindo PDV Desktop - Perfil 2...$(NC)"
+	@"$(TAURI_DIR)/target/release/bundle/macos/PDV Desktop.app/Contents/MacOS/PDV Desktop" --profile=2 &
+
+run-3: ## Executa instância 3 (sessão separada)
+	@echo "$(BLUE)🚀 Abrindo PDV Desktop - Perfil 3...$(NC)"
+	@"$(TAURI_DIR)/target/release/bundle/macos/PDV Desktop.app/Contents/MacOS/PDV Desktop" --profile=3 &
+
+run-multi: run-1 run-2 ## Abre 2 instâncias com sessões separadas
+
+dev-1: sync-config ## Dev com perfil 1
+	@echo "$(BLUE)🚀 Dev - Perfil 1...$(NC)"
+	cd $(TAURI_DIR) && cargo run -- --profile=1
+
+dev-2: sync-config ## Dev com perfil 2 (sessão separada)
+	@echo "$(BLUE)🚀 Dev - Perfil 2...$(NC)"
+	cd $(TAURI_DIR) && cargo run -- --profile=2

@@ -379,7 +379,14 @@
 
       // Pequeno delay para mostrar o loading
       setTimeout(() => {
-        window.location.href = url;
+        // Tenta usar a API do Tauri para navegação (modo release)
+        if (window.__TAURI__) {
+          // Em modo Tauri, usa location.replace que funciona melhor
+          window.location.replace(url);
+        } else {
+          // Fallback para browser normal
+          window.location.href = url;
+        }
       }, 500);
     }
 
